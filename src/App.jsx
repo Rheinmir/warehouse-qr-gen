@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useRef } from "react";
 import {
   Package,
   Download,
@@ -8,8 +8,11 @@ import {
   QrCode,
   Loader2,
   Settings2,
+  List,
 } from "lucide-react";
 import { jsPDF } from "jspdf";
+import html2canvas from "html2canvas";
+import JSZip from "jszip";
 
 // Hàm chuyển đổi số sang số La Mã
 const toRoman = (num) => {
@@ -40,6 +43,8 @@ const toRoman = (num) => {
 };
 
 const App = () => {
+  // Ref for PNG export
+  const previewRef = useRef(null);
   // State for configuration
   const [config, setConfig] = useState({
     warehouseName: "Kho 2(miền Nam, new)",
@@ -53,6 +58,7 @@ const App = () => {
 
   const [previewLimit, setPreviewLimit] = useState(10);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+  const [isGeneratingZip, setIsGeneratingZip] = useState(false);
 
   // Helper to format numbers based on config
   const formatValue = (val, type) => {
@@ -76,7 +82,9 @@ const App = () => {
           // Định dạng: Tên Kho-Kệ-Tầng-Hàng
           const id = `${config.warehouseName}-${rLabel}-${tLabel}-${hLabel}`;
 
-          const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(id)}`;
+          const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(
+            id,
+          )}`;
 
           list.push({
             warehouse: config.warehouseName,
@@ -108,8 +116,7 @@ const App = () => {
     }));
   };
 
-  const exportToCSV = () => {
-    // Đã sửa đổi: Thay thế "Trạng thái" bằng "Link QR Code"
+  const getCSVBlob = () => {
     const headers = ["Kho", "Kệ", "Tầng", "Hàng", "Mã Vị Trí", "Link QR Code"];
     const csvContent = [
       headers.join(","),
@@ -119,9 +126,13 @@ const App = () => {
       ),
     ].join("\n");
 
-    const blob = new Blob(["\ufeff" + csvContent], {
+    return new Blob(["\ufeff" + csvContent], {
       type: "text/csv;charset=utf-8;",
     });
+  };
+
+  const exportToCSV = () => {
+    const blob = getCSVBlob();
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.setAttribute("href", url);
@@ -134,51 +145,77 @@ const App = () => {
     document.body.removeChild(link);
   };
 
+  const getPDFBlob = () => {
+    const doc = new jsPDF({ orientation: "p", unit: "mm", format: "a4" });
+    const itemsPerPage = 12;
+    const margin = 10;
+    const cardWidth = 60;
+    const cardHeight = 60;
+    const gap = 5;
+
+    for (let i = 0; i < positions.length; i++) {
+      const item = positions[i];
+      const pageIdx = i % itemsPerPage;
+      if (i > 0 && pageIdx === 0) doc.addPage();
+      const col = pageIdx % 3;
+      const row = Math.floor(pageIdx / 3);
+      const x = margin + col * (cardWidth + gap);
+      const y = margin + row * (cardHeight + gap);
+
+      // Draw border
+      doc.setDrawColor(200, 200, 200);
+      doc.rect(x, y, cardWidth, cardHeight);
+
+      // Warehouse Name (Top)
+      doc.setFontSize(7);
+      doc.setTextColor(100, 100, 100);
+      const warehouseLines = doc.splitTextToSize(item.warehouse, 50);
+      doc.text(warehouseLines, x + cardWidth / 2, y + 5, {
+        align: "center",
+        baseline: "top",
+      });
+
+      // Calculate height used by warehouse name
+      const warehouseHeight = warehouseLines.length * 3; // Approx 3mm per line for size 7
+
+      // Code (Middle) - Dynamic Y
+      doc.setFontSize(10);
+      doc.setTextColor(0, 0, 0);
+      doc.setFont(undefined, "bold");
+      const codeLines = doc.splitTextToSize(item.code, 55);
+      // Position code below warehouse name with some padding
+      const codeY = y + 5 + warehouseHeight + 5;
+      doc.text(codeLines, x + cardWidth / 2, codeY, {
+        align: "center",
+        baseline: "top",
+      });
+
+      // Calculate height used by code
+      const codeHeight = codeLines.length * 4; // Approx 4mm per line for size 10
+
+      // Info (Bottom) - Dynamic Y
+      doc.setFontSize(8);
+      doc.setFont(undefined, "normal");
+      const infoY = codeY + codeHeight + 5;
+      doc.text(
+        `Kệ: ${item.rack} | Tầng: ${item.level} | Hàng: ${item.row}`,
+        x + cardWidth / 2,
+        infoY,
+        { align: "center", baseline: "top" },
+      );
+    }
+    return doc.output("blob");
+  };
+
   const exportToPDF = async () => {
     setIsGeneratingPdf(true);
     try {
-      // Create new jsPDF instance
-      const doc = new jsPDF({ orientation: "p", unit: "mm", format: "a4" });
-      const itemsPerPage = 12;
-      const margin = 10;
-      const cardWidth = 60;
-      const cardHeight = 60;
-      const gap = 5;
-
-      for (let i = 0; i < positions.length; i++) {
-        const item = positions[i];
-        const pageIdx = i % itemsPerPage;
-        if (i > 0 && pageIdx === 0) doc.addPage();
-        const col = pageIdx % 3;
-        const row = Math.floor(pageIdx / 3);
-        const x = margin + col * (cardWidth + gap);
-        const y = margin + row * (cardHeight + gap);
-
-        doc.setDrawColor(200, 200, 200);
-        doc.rect(x, y, cardWidth, cardHeight);
-        doc.setFontSize(7);
-        doc.setTextColor(100, 100, 100);
-        doc.text(item.warehouse, x + cardWidth / 2, y + 5, {
-          align: "center",
-          maxWidth: 50,
-        });
-        doc.setFontSize(10);
-        doc.setTextColor(0, 0, 0);
-        doc.setFont(undefined, "bold");
-        doc.text(item.code, x + cardWidth / 2, y + 15, {
-          align: "center",
-          maxWidth: 55,
-        });
-        doc.setFontSize(8);
-        doc.setFont(undefined, "normal");
-        doc.text(
-          `Kệ: ${item.rack} | Tầng: ${item.level} | Hàng: ${item.row}`,
-          x + cardWidth / 2,
-          y + 55,
-          { align: "center" },
-        );
-      }
-      doc.save(`Nhan_Kho_${config.warehouseName}.pdf`);
+      const blob = getPDFBlob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `Nhan_Kho_${config.warehouseName}.pdf`;
+      link.click();
     } catch (err) {
       console.error(err);
     } finally {
@@ -186,234 +223,300 @@ const App = () => {
     }
   };
 
+  const getPNGBlob = async () => {
+    if (!previewRef.current) return null;
+    const canvas = await html2canvas(previewRef.current, {
+      scale: 2, // Higher quality
+      backgroundColor: "#ffffff",
+    });
+    return new Promise((resolve) => {
+      canvas.toBlob(resolve, "image/png");
+    });
+  };
+
+  const exportToPNG = async () => {
+    try {
+      const blob = await getPNGBlob();
+      if (blob) {
+        const link = document.createElement("a");
+        link.download = `preview_${config.warehouseName}.png`;
+        link.href = URL.createObjectURL(blob);
+        link.click();
+      }
+    } catch (err) {
+      console.error("PNG export failed:", err);
+    }
+  };
+
+  const exportToZIP = async () => {
+    setIsGeneratingZip(true);
+    try {
+      const zip = new JSZip();
+
+      // Add CSV
+      zip.file(`danh_sach_vi_tri_${config.warehouseName}.csv`, getCSVBlob());
+
+      // Add PDF
+      zip.file(`Nhan_Kho_${config.warehouseName}.pdf`, getPDFBlob());
+
+      // Add PNG
+      const pngBlob = await getPNGBlob();
+      if (pngBlob) {
+        zip.file(`preview_${config.warehouseName}.png`, pngBlob);
+      }
+
+      const content = await zip.generateAsync({ type: "blob" });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(content);
+      link.download = `QRgen_Pack_${config.warehouseName}.zip`;
+      link.click();
+    } catch (err) {
+      console.error("ZIP export failed:", err);
+    } finally {
+      setIsGeneratingZip(false);
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-slate-50 p-4 md:p-8 font-sans text-slate-900">
-      <div className="max-w-7xl mx-auto">
+    <div className="min-h-screen p-6 md:p-10 flex justify-center">
+      <div className="max-w-7xl w-full space-y-8">
         {/* Header */}
-        <header className="mb-8 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        <header className="flex flex-col md:flex-row md:items-center justify-between gap-6 pb-6 border-b border-gray-200/60">
           <div>
-            <h1 className="text-3xl font-bold text-slate-800 flex items-center gap-2">
-              <Package className="text-blue-600" />
+            <h1 className="text-3xl font-semibold tracking-tight text-gray-900 flex items-center gap-3">
+              <Package className="text-blue-500" strokeWidth={2} />
               Quản lý Nhãn Vị Trí Kho
             </h1>
-            <p className="text-slate-500 mt-1">
-              Định dạng linh hoạt số thập phân & số La Mã
+            <p className="text-gray-500 mt-2 text-base font-normal">
+              Định dạng linh hoạt:{" "}
+              <span className="font-medium text-gray-700">Số thập phân</span> &{" "}
+              <span className="font-medium text-gray-700">Số La Mã</span>
             </p>
           </div>
-          <div className="flex flex-wrap gap-3">
+          <div className="flex gap-3">
             <button
               onClick={exportToCSV}
-              className="flex items-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 px-5 py-2.5 rounded-xl font-semibold transition-all shadow-sm"
+              className="mac-button bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-gray-300 flex items-center gap-2"
             >
-              <Download size={18} /> CSV
+              <Download size={16} /> CSV
+            </button>
+            <button
+              onClick={exportToPNG}
+              className="mac-button bg-purple-500 text-white hover:bg-purple-600 border-transparent shadow-purple-500/20 shadow-lg flex items-center gap-2"
+            >
+              <QrCode size={16} />
+              Xuất PNG
             </button>
             <button
               onClick={exportToPDF}
               disabled={isGeneratingPdf}
-              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white px-6 py-2.5 rounded-xl font-semibold transition-all shadow-lg"
+              className="mac-button bg-blue-500 text-white hover:bg-blue-600 border-transparent shadow-blue-500/20 shadow-lg flex items-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
             >
               {isGeneratingPdf ? (
-                <Loader2 className="animate-spin" size={18} />
+                <Loader2 className="animate-spin" size={16} />
               ) : (
-                <FileText size={18} />
+                <FileText size={16} />
               )}
               Xuất PDF
+            </button>
+            <button
+              onClick={exportToZIP}
+              disabled={isGeneratingZip}
+              className="mac-button bg-green-500 text-white hover:bg-green-600 border-transparent shadow-green-500/20 shadow-lg flex items-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
+            >
+              {isGeneratingZip ? (
+                <Loader2 className="animate-spin" size={16} />
+              ) : (
+                <Package size={16} />
+              )}
+              Xuất ZIP
             </button>
           </div>
         </header>
 
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
-          {/* Settings */}
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-8 items-start">
+          {/* Settings Side Panel */}
           <div className="lg:col-span-1 space-y-6">
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-              <h2 className="text-lg font-semibold mb-6 flex items-center gap-2 border-b pb-2 text-slate-700">
-                <Settings2 size={18} /> Cấu hình định dạng
+            <div className="glass rounded-2xl p-6 border border-white/40 shadow-xl shadow-gray-200/40">
+              <h2 className="text-base font-semibold text-gray-900 mb-5 flex items-center gap-2">
+                <Settings2 size={18} className="text-gray-500" />
+                Cấu hình
               </h2>
 
-              <div className="space-y-6">
+              <div className="space-y-5">
                 <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase mb-2">
-                    Tên Kho hiển thị
+                  <label className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                    Tên Kho
                   </label>
                   <input
                     type="text"
                     name="warehouseName"
                     value={config.warehouseName}
                     onChange={handleInputChange}
-                    className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                    className="mac-input w-full"
+                    placeholder="Nhập tên kho..."
                   />
                 </div>
 
-                {/* Rack Config */}
-                <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
-                  <div className="flex justify-between items-center mb-2">
-                    <label className="text-xs font-bold text-slate-500 uppercase">
-                      Kệ (Rack)
-                    </label>
-                    <button
-                      onClick={() => toggleFormat("rack")}
-                      className="text-[10px] bg-blue-100 text-blue-600 px-2 py-1 rounded font-bold hover:bg-blue-200"
-                    >
-                      {config.rackFormat === "arabic"
-                        ? "1, 2, 3..."
-                        : "I, II, III..."}
-                    </button>
+                {["rack", "level", "row"].map((field) => (
+                  <div
+                    key={field}
+                    className="p-4 bg-gray-50/50 rounded-xl border border-gray-100/60"
+                  >
+                    <div className="flex justify-between items-center mb-3">
+                      <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
+                        {field === "rack"
+                          ? "Kệ (Rack)"
+                          : field === "level"
+                            ? "Tầng (Level)"
+                            : "Hàng (Row)"}
+                      </label>
+                      <button
+                        onClick={() => toggleFormat(field)}
+                        className={`text-[10px] font-bold px-2 py-1 rounded-md transition-colors ${
+                          config[`${field}Format`] === "roman"
+                            ? "bg-purple-100 text-purple-700 hover:bg-purple-200"
+                            : "bg-blue-100 text-blue-700 hover:bg-blue-200"
+                        }`}
+                      >
+                        {config[`${field}Format`] === "arabic" ? "123" : "III"}
+                      </button>
+                    </div>
+                    <input
+                      type="number"
+                      name={`${field}s`}
+                      value={config[`${field}s`]}
+                      onChange={handleInputChange}
+                      className="mac-input w-full"
+                    />
                   </div>
-                  <input
-                    type="number"
-                    name="racks"
-                    value={config.racks}
-                    onChange={handleInputChange}
-                    className="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-md outline-none"
-                  />
-                </div>
-
-                {/* Level Config */}
-                <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
-                  <div className="flex justify-between items-center mb-2">
-                    <label className="text-xs font-bold text-slate-500 uppercase">
-                      Tầng (Level)
-                    </label>
-                    <button
-                      onClick={() => toggleFormat("level")}
-                      className="text-[10px] bg-blue-100 text-blue-600 px-2 py-1 rounded font-bold hover:bg-blue-200"
-                    >
-                      {config.levelFormat === "arabic"
-                        ? "1, 2, 3..."
-                        : "I, II, III..."}
-                    </button>
-                  </div>
-                  <input
-                    type="number"
-                    name="levels"
-                    value={config.levels}
-                    onChange={handleInputChange}
-                    className="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-md outline-none"
-                  />
-                </div>
-
-                {/* Row Config */}
-                <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
-                  <div className="flex justify-between items-center mb-2">
-                    <label className="text-xs font-bold text-slate-500 uppercase">
-                      Hàng (Row)
-                    </label>
-                    <button
-                      onClick={() => toggleFormat("row")}
-                      className="text-[10px] bg-blue-100 text-blue-600 px-2 py-1 rounded font-bold hover:bg-blue-200"
-                    >
-                      {config.rowFormat === "arabic"
-                        ? "1, 2, 3..."
-                        : "I, II, III..."}
-                    </button>
-                  </div>
-                  <input
-                    type="number"
-                    name="rows"
-                    value={config.rows}
-                    onChange={handleInputChange}
-                    className="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-md outline-none"
-                  />
-                </div>
+                ))}
               </div>
             </div>
 
-            <div className="bg-slate-900 p-6 rounded-2xl shadow-lg text-white">
-              <h2 className="text-xs font-semibold opacity-60 mb-4 uppercase tracking-widest">
-                Mẫu nhãn hiện tại
+            {/* Preview Card */}
+            <div
+              ref={previewRef}
+              className="bg-white rounded-2xl p-6 shadow-xl shadow-gray-200/50 border border-gray-100 flex flex-col items-center text-center relative overflow-hidden group"
+            >
+              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-400 to-purple-400"></div>
+              <h2 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-4">
+                Xem trước
               </h2>
-              <div className="bg-white p-5 rounded-xl flex flex-col items-center shadow-inner text-slate-900">
-                <div className="w-24 h-24 mb-3">
-                  <img
-                    src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(`${config.warehouseName}-${formatValue(1, "rack")}-${formatValue(config.levels, "level")}-${formatValue(1, "row")}`)}`}
-                    alt="QR"
-                  />
+              <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 mb-3 group-hover:scale-105 transition-transform duration-300">
+                <img
+                  src={`https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(
+                    `${config.warehouseName}-${formatValue(
+                      1,
+                      "rack",
+                    )}-${formatValue(config.levels, "level")}-${formatValue(
+                      1,
+                      "row",
+                    )}`,
+                  )}`}
+                  alt="QR Preview"
+                  className="w-28 h-28 opacity-90"
+                />
+              </div>
+              <div>
+                <div className="text-xs font-medium text-gray-500 truncate w-48 mx-auto">
+                  {config.warehouseName}
                 </div>
-                <div className="text-center">
-                  <div className="text-[10px] font-bold text-slate-400 truncate w-40">
-                    {config.warehouseName}
-                  </div>
-                  <div className="text-sm font-black mt-1">
-                    {formatValue(1, "rack")}-
-                    {formatValue(config.levels, "level")}-
-                    {formatValue(1, "row")}
-                  </div>
+                <div className="text-base font-bold text-gray-900 mt-1 font-mono tracking-tight">
+                  {formatValue(1, "rack")}-{formatValue(config.levels, "level")}
+                  -{formatValue(1, "row")}
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Table */}
+          {/* Main Content Area */}
           <div className="lg:col-span-3">
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-              <div className="p-6 border-b border-slate-100 bg-white">
-                <h2 className="text-lg font-semibold text-slate-700 flex items-center gap-2">
-                  <Grid size={18} className="text-blue-500" />
-                  Danh sách vị trí ({positions.length} mã)
-                </h2>
+            <div className="bg-white rounded-2xl border border-gray-200/60 shadow-sm overflow-hidden flex flex-col h-full min-h-[600px]">
+              <div className="p-5 border-b border-gray-100 flex items-center justify-between bg-gray-50/30 backdrop-blur-sm">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-blue-100/50 rounded-lg text-blue-600">
+                    <List size={20} />
+                  </div>
+                  <h2 className="text-base font-semibold text-gray-800">
+                    Danh sách mã định danh
+                  </h2>
+                </div>
+                <span className="text-xs font-medium px-2.5 py-1 bg-gray-100 text-gray-600 rounded-full">
+                  {positions.length} vị trí
+                </span>
               </div>
-              <div className="overflow-x-auto">
+
+              <div className="overflow-x-auto flex-1">
                 <table className="w-full text-left border-collapse">
                   <thead>
-                    <tr className="bg-slate-50 text-slate-400 text-[10px] uppercase font-bold tracking-widest">
-                      <th className="px-6 py-4">Mã Vị Trí</th>
-                      <th className="px-6 py-4">QR</th>
-                      <th className="px-6 py-4">Kệ</th>
-                      <th className="px-6 py-4">Tầng</th>
-                      <th className="px-6 py-4">Hàng</th>
+                    <tr className="border-b border-gray-100 text-left bg-gray-50/50">
+                      <th className="px-6 py-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
+                        Mã Vị Trí
+                      </th>
+                      <th className="px-6 py-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
+                        QR Code
+                      </th>
+                      <th className="px-6 py-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
+                        Kệ
+                      </th>
+                      <th className="px-6 py-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
+                        Tầng
+                      </th>
+                      <th className="px-6 py-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
+                        Hàng
+                      </th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100">
+                  <tbody className="divide-y divide-gray-50">
                     {positions.slice(0, previewLimit).map((item, idx) => (
                       <tr
                         key={idx}
-                        className="hover:bg-blue-50/20 transition-colors"
+                        className="group hover:bg-blue-50/30 transition-colors"
                       >
-                        <td className="px-6 py-4 font-bold text-slate-800 text-sm">
-                          {item.code}
+                        <td className="px-6 py-4">
+                          <span className="font-mono text-sm font-medium text-gray-700 bg-gray-100/50 px-2 py-1 rounded inline-block group-hover:bg-white group-hover:shadow-sm transition-all">
+                            {item.code}
+                          </span>
                         </td>
                         <td className="px-6 py-4">
                           <img
                             src={item.qrUrl}
                             alt="QR"
-                            className="w-10 h-10 border rounded shadow-sm bg-white"
+                            className="w-8 h-8 rounded border border-gray-100 bg-white p-0.5"
                           />
                         </td>
                         <td className="px-6 py-4">
-                          <span className="px-2 py-1 bg-slate-100 rounded text-xs">
+                          <span className="text-sm text-gray-600 font-medium">
                             {item.rack}
                           </span>
                         </td>
                         <td className="px-6 py-4">
-                          <span className="px-2 py-1 bg-blue-50 text-blue-600 rounded text-xs">
+                          <span className="text-xs font-semibold px-2 py-1 bg-blue-50 text-blue-600 rounded-md border border-blue-100/50">
                             {item.level}
                           </span>
                         </td>
                         <td className="px-6 py-4">
-                          <span className="px-2 py-1 bg-green-50 text-green-600 rounded text-xs">
+                          <span className="text-xs font-semibold px-2 py-1 bg-emerald-50 text-emerald-600 rounded-md border border-emerald-100/50">
                             {item.row}
                           </span>
                         </td>
                       </tr>
                     ))}
-                    {positions.length > previewLimit && (
-                      <tr>
-                        <td
-                          colSpan="5"
-                          className="px-6 py-6 text-center bg-slate-50/30"
-                        >
-                          <button
-                            onClick={() => setPreviewLimit((prev) => prev + 20)}
-                            className="text-sm font-bold text-blue-600 hover:underline"
-                          >
-                            + Hiển thị thêm vị trí
-                          </button>
-                        </td>
-                      </tr>
-                    )}
                   </tbody>
                 </table>
               </div>
+
+              {positions.length > previewLimit && (
+                <div className="p-4 border-t border-gray-100 bg-gray-50/30 text-center">
+                  <button
+                    onClick={() => setPreviewLimit((prev) => prev + 20)}
+                    className="text-sm font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-50 px-4 py-2 rounded-lg transition-all"
+                  >
+                    Hiển thị thêm...
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>
