@@ -9,6 +9,7 @@ import {
   Loader2,
   Settings2,
   List,
+  Image,
 } from "lucide-react";
 import { jsPDF } from "jspdf";
 import html2canvas from "html2canvas";
@@ -59,6 +60,7 @@ const App = () => {
   const [previewLimit, setPreviewLimit] = useState(10);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [isGeneratingZip, setIsGeneratingZip] = useState(false);
+  const [isGeneratingPng, setIsGeneratingPng] = useState(false);
 
   // Helper to format numbers based on config
   const formatValue = (val, type) => {
@@ -226,7 +228,7 @@ const App = () => {
   const exportToPDF = async () => {
     setIsGeneratingPdf(true);
     try {
-      const blob = getPDFBlob();
+      const blob = await getPDFBlob();
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
@@ -250,17 +252,145 @@ const App = () => {
     });
   };
 
-  const exportToPNG = async () => {
+  // Generate individual QR card as canvas
+  const generateQRCard = async (item, logoUrl = "/CTD.png") => {
+    const cardWidth = 320;
+    const cardHeight = 340; // Compact - no extra space
+    const padding = 12; // Tight padding
+    const canvas = document.createElement("canvas");
+    canvas.width = cardWidth * 2; // 2x for high quality
+    canvas.height = cardHeight * 2;
+    const ctx = canvas.getContext("2d");
+    const scale = 2;
+
+    // White background
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Subtle border
+    ctx.strokeStyle = "#e5e7eb";
+    ctx.lineWidth = 2 * scale;
+    ctx.strokeRect(
+      scale,
+      scale,
+      canvas.width - 2 * scale,
+      canvas.height - 2 * scale,
+    );
+
+    // === LOGO at top (centered) ===
+    const logoHeight = 52 * scale; // Larger for sharper quality
+    const logoY = padding * scale;
     try {
-      const blob = await getPNGBlob();
-      if (blob) {
-        const link = document.createElement("a");
-        link.download = `preview_${config.warehouseName}.png`;
-        link.href = URL.createObjectURL(blob);
-        link.click();
+      const logoImg = new window.Image();
+      logoImg.crossOrigin = "anonymous";
+      await new Promise((resolve, reject) => {
+        logoImg.onload = resolve;
+        logoImg.onerror = reject;
+        logoImg.src = logoUrl;
+      });
+      // Calculate width to maintain aspect ratio
+      const logoAspect = logoImg.width / logoImg.height;
+      const logoW = logoHeight * logoAspect;
+      const logoX = (canvas.width - logoW) / 2;
+      // High quality rendering
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "high";
+      ctx.drawImage(logoImg, logoX, logoY, logoW, logoHeight);
+    } catch (err) {
+      console.error("Failed to load logo:", err);
+    }
+
+    // === Warehouse name (below logo, close to QR) ===
+    const warehouseY = logoY + logoHeight + 16 * scale;
+    ctx.fillStyle = "#6b7280";
+    ctx.font = `300 ${12 * scale}px 'Lexend Deca', sans-serif`;
+    ctx.textAlign = "center";
+    ctx.fillText(item.warehouse, canvas.width / 2, warehouseY);
+
+    // === QR Code (centered) ===
+    const qrSize = 160 * scale;
+    const qrX = (canvas.width - qrSize) / 2;
+    const qrY = warehouseY + 12 * scale; // Close to warehouse name
+    try {
+      const qrImg = new window.Image();
+      qrImg.crossOrigin = "anonymous";
+      await new Promise((resolve, reject) => {
+        qrImg.onload = resolve;
+        qrImg.onerror = reject;
+        qrImg.src = item.qrUrl;
+      });
+      ctx.drawImage(qrImg, qrX, qrY, qrSize, qrSize);
+    } catch (err) {
+      console.error("Failed to load QR for:", item.code);
+      ctx.fillStyle = "#f3f4f6";
+      ctx.fillRect(qrX, qrY, qrSize, qrSize);
+      ctx.fillStyle = "#9ca3af";
+      ctx.font = `300 ${12 * scale}px 'Lexend Deca', sans-serif`;
+      ctx.fillText("QR Error", canvas.width / 2, qrY + qrSize / 2);
+    }
+
+    // === Bottom section: 2 lines compact right below QR ===
+    const textGap = 16 * scale; // Gap after QR
+    const lineHeight = 22 * scale; // Space between 2 lines
+
+    // Code line (right below QR)
+    const codeY = qrY + qrSize + textGap + 14 * scale;
+    ctx.fillStyle = "#111827";
+    ctx.font = `500 ${14 * scale}px 'Lexend Deca', sans-serif`;
+    ctx.textAlign = "center";
+
+    // Measure and shrink if too long
+    const maxWidth = (cardWidth - padding * 2) * scale;
+    const codeText = item.code;
+    if (ctx.measureText(codeText).width > maxWidth) {
+      ctx.font = `500 ${11 * scale}px 'Lexend Deca', sans-serif`;
+    }
+    ctx.fillText(codeText, canvas.width / 2, codeY);
+
+    // Info line (below code line)
+    const infoY = codeY + lineHeight;
+    ctx.fillStyle = "#9ca3af";
+    ctx.font = `300 ${11 * scale}px 'Lexend Deca', sans-serif`;
+    ctx.fillText(
+      `Kệ: ${item.rack}  •  Tầng: ${item.level}  •  Hàng: ${item.row}`,
+      canvas.width / 2,
+      infoY,
+    );
+
+    return new Promise((resolve) => {
+      canvas.toBlob(resolve, "image/png");
+    });
+  };
+
+  const exportToPNG = async () => {
+    setIsGeneratingPng(true);
+    try {
+      const zip = new JSZip();
+      const pngFolder = zip.folder("qr_images");
+
+      // Process in batches to avoid overwhelming the browser
+      const batchSize = 20;
+      for (let i = 0; i < positions.length; i += batchSize) {
+        const batch = positions.slice(i, i + batchSize);
+        const promises = batch.map(async (item, idx) => {
+          const blob = await generateQRCard(item);
+          if (blob) {
+            const fileName = `${item.code.replace(/[/\\?%*:|"<>]/g, "_")}.png`;
+            pngFolder.file(fileName, blob);
+          }
+        });
+        await Promise.all(promises);
       }
+
+      const content = await zip.generateAsync({ type: "blob" });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(content);
+      link.download = `QR_Batch_${Date.now()}.zip`;
+      link.click();
     } catch (err) {
       console.error("PNG export failed:", err);
+    } finally {
+      setIsGeneratingPng(false);
     }
   };
 
@@ -303,11 +433,6 @@ const App = () => {
               <Package className="text-blue-500" strokeWidth={2} />
               Quản lý Nhãn Vị Trí Kho
             </h1>
-            <p className="text-gray-500 mt-2 text-base font-normal">
-              Định dạng linh hoạt:{" "}
-              <span className="font-medium text-gray-700">Số thập phân</span> &{" "}
-              <span className="font-medium text-gray-700">Số La Mã</span>
-            </p>
           </div>
           <div className="flex gap-3">
             <button
@@ -318,10 +443,15 @@ const App = () => {
             </button>
             <button
               onClick={exportToPNG}
-              className="mac-button bg-purple-500 text-white hover:bg-purple-600 border-transparent shadow-purple-500/20 shadow-lg flex items-center gap-2"
+              disabled={isGeneratingPng}
+              className="mac-button bg-purple-500 text-white hover:bg-purple-600 border-transparent shadow-purple-500/20 shadow-lg flex items-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
             >
-              <QrCode size={16} />
-              Xuất PNG
+              {isGeneratingPng ? (
+                <Loader2 className="animate-spin" size={16} />
+              ) : (
+                <Image size={16} />
+              )}
+              Xuất PNG ({positions.length})
             </button>
             <button
               onClick={exportToPDF}
