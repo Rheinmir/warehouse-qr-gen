@@ -61,6 +61,11 @@ const App = () => {
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [isGeneratingZip, setIsGeneratingZip] = useState(false);
   const [isGeneratingPng, setIsGeneratingPng] = useState(false);
+  const [exportProgress, setExportProgress] = useState({
+    current: 0,
+    total: 0,
+    label: "",
+  });
 
   // Helper to format numbers based on config
   const formatValue = (val, type) => {
@@ -364,24 +369,41 @@ const App = () => {
 
   const exportToPNG = async () => {
     setIsGeneratingPng(true);
+    setExportProgress({
+      current: 0,
+      total: positions.length,
+      label: "Đang tạo ảnh PNG...",
+    });
     try {
       const zip = new JSZip();
       const pngFolder = zip.folder("qr_images");
 
-      // Process in batches to avoid overwhelming the browser
+      // Process in batches
       const batchSize = 20;
+      let processed = 0;
       for (let i = 0; i < positions.length; i += batchSize) {
         const batch = positions.slice(i, i + batchSize);
-        const promises = batch.map(async (item, idx) => {
+        const promises = batch.map(async (item) => {
           const blob = await generateQRCard(item);
           if (blob) {
             const fileName = `${item.code.replace(/[/\\?%*:|"<>]/g, "_")}.png`;
             pngFolder.file(fileName, blob);
           }
+          processed++;
+          setExportProgress({
+            current: processed,
+            total: positions.length,
+            label: "Đang tạo ảnh PNG...",
+          });
         });
         await Promise.all(promises);
       }
 
+      setExportProgress({
+        current: positions.length,
+        total: positions.length,
+        label: "Đang nén file...",
+      });
       const content = await zip.generateAsync({ type: "blob" });
       const link = document.createElement("a");
       link.href = URL.createObjectURL(content);
@@ -391,23 +413,40 @@ const App = () => {
       console.error("PNG export failed:", err);
     } finally {
       setIsGeneratingPng(false);
+      setExportProgress({ current: 0, total: 0, label: "" });
     }
   };
 
   const exportToZIP = async () => {
     setIsGeneratingZip(true);
+    setExportProgress({
+      current: 0,
+      total: positions.length + 2,
+      label: "Đang tạo CSV...",
+    });
     try {
       const zip = new JSZip();
 
       // Add CSV
       zip.file(`danh_sach_vi_tri_${config.warehouseName}.csv`, getCSVBlob());
+      setExportProgress({
+        current: 1,
+        total: positions.length + 2,
+        label: "Đang tạo PDF...",
+      });
 
       // Add PDF
       zip.file(`Nhan_Kho_${config.warehouseName}.pdf`, await getPDFBlob());
+      setExportProgress({
+        current: 2,
+        total: positions.length + 2,
+        label: "Đang tạo ảnh PNG...",
+      });
 
       // Add ALL PNG images in subfolder
       const pngFolder = zip.folder("qr_images");
       const batchSize = 20;
+      let processed = 2;
       for (let i = 0; i < positions.length; i += batchSize) {
         const batch = positions.slice(i, i + batchSize);
         const promises = batch.map(async (item) => {
@@ -416,10 +455,21 @@ const App = () => {
             const fileName = `${item.code.replace(/[/\\?%*:|"<>]/g, "_")}.png`;
             pngFolder.file(fileName, blob);
           }
+          processed++;
+          setExportProgress({
+            current: processed,
+            total: positions.length + 2,
+            label: "Đang tạo ảnh PNG...",
+          });
         });
         await Promise.all(promises);
       }
 
+      setExportProgress({
+        current: positions.length + 2,
+        total: positions.length + 2,
+        label: "Đang nén file...",
+      });
       const content = await zip.generateAsync({ type: "blob" });
       const link = document.createElement("a");
       link.href = URL.createObjectURL(content);
@@ -429,270 +479,305 @@ const App = () => {
       console.error("ZIP export failed:", err);
     } finally {
       setIsGeneratingZip(false);
+      setExportProgress({ current: 0, total: 0, label: "" });
     }
   };
 
   return (
-    <div className="min-h-screen p-6 md:p-10 flex justify-center">
-      <div className="max-w-7xl w-full space-y-8">
-        {/* Header */}
-        <header className="flex flex-col md:flex-row md:items-center justify-between gap-6 pb-6 border-b border-gray-200/60">
-          <div>
-            <h1 className="text-3xl font-semibold tracking-tight text-gray-900 flex items-center gap-3">
-              <Package className="text-blue-500" strokeWidth={2} />
-              Quản lý Nhãn Vị Trí Kho
-            </h1>
+    <>
+      {/* Progress Modal */}
+      {(isGeneratingPng || isGeneratingZip) && exportProgress.total > 0 && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center">
+          <div className="bg-white rounded-2xl p-6 shadow-2xl w-80 text-center">
+            <Loader2
+              className="animate-spin mx-auto text-blue-500 mb-4"
+              size={40}
+            />
+            <p className="text-sm font-medium text-gray-700 mb-2">
+              {exportProgress.label}
+            </p>
+            <div className="w-full bg-gray-200 rounded-full h-3 mb-2 overflow-hidden">
+              <div
+                className="bg-gradient-to-r from-blue-500 to-purple-500 h-3 rounded-full transition-all duration-300"
+                style={{
+                  width: `${Math.round((exportProgress.current / exportProgress.total) * 100)}%`,
+                }}
+              />
+            </div>
+            <p className="text-xs text-gray-500">
+              {exportProgress.current} / {exportProgress.total} (
+              {Math.round(
+                (exportProgress.current / exportProgress.total) * 100,
+              )}
+              %)
+            </p>
           </div>
-          <div className="flex gap-3">
-            <button
-              onClick={exportToCSV}
-              className="mac-button bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-gray-300 flex items-center gap-2"
-            >
-              <Download size={16} /> CSV
-            </button>
-            <button
-              onClick={exportToPNG}
-              disabled={isGeneratingPng}
-              className="mac-button bg-purple-500 text-white hover:bg-purple-600 border-transparent shadow-purple-500/20 shadow-lg flex items-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
-            >
-              {isGeneratingPng ? (
-                <Loader2 className="animate-spin" size={16} />
-              ) : (
-                <Image size={16} />
-              )}
-              Xuất PNG ({positions.length})
-            </button>
-            <button
-              onClick={exportToPDF}
-              disabled={isGeneratingPdf}
-              className="mac-button bg-blue-500 text-white hover:bg-blue-600 border-transparent shadow-blue-500/20 shadow-lg flex items-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
-            >
-              {isGeneratingPdf ? (
-                <Loader2 className="animate-spin" size={16} />
-              ) : (
-                <FileText size={16} />
-              )}
-              Xuất PDF
-            </button>
-            <button
-              onClick={exportToZIP}
-              disabled={isGeneratingZip}
-              className="mac-button bg-green-500 text-white hover:bg-green-600 border-transparent shadow-green-500/20 shadow-lg flex items-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
-            >
-              {isGeneratingZip ? (
-                <Loader2 className="animate-spin" size={16} />
-              ) : (
-                <Package size={16} />
-              )}
-              Xuất ZIP
-            </button>
-          </div>
-        </header>
+        </div>
+      )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-8 items-start">
-          {/* Settings Side Panel */}
-          <div className="lg:col-span-1 space-y-6">
-            <div className="glass rounded-2xl p-6 border border-white/40 shadow-xl shadow-gray-200/40">
-              <h2 className="text-base font-semibold text-gray-900 mb-5 flex items-center gap-2">
-                <Settings2 size={18} className="text-gray-500" />
-                Cấu hình
-              </h2>
+      <div className="min-h-screen p-6 md:p-10 flex justify-center">
+        <div className="max-w-7xl w-full space-y-8">
+          {/* Header */}
+          <header className="flex flex-col md:flex-row md:items-center justify-between gap-6 pb-6 border-b border-gray-200/60">
+            <div>
+              <h1 className="text-3xl font-semibold tracking-tight text-gray-900 flex items-center gap-3">
+                <Package className="text-blue-500" strokeWidth={2} />
+                Quản lý Nhãn Vị Trí Kho
+              </h1>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={exportToCSV}
+                className="mac-button bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-gray-300 flex items-center gap-2"
+              >
+                <Download size={16} /> CSV
+              </button>
+              <button
+                onClick={exportToPNG}
+                disabled={isGeneratingPng}
+                className="mac-button bg-purple-500 text-white hover:bg-purple-600 border-transparent shadow-purple-500/20 shadow-lg flex items-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
+              >
+                {isGeneratingPng ? (
+                  <Loader2 className="animate-spin" size={16} />
+                ) : (
+                  <Image size={16} />
+                )}
+                Xuất PNG ({positions.length})
+              </button>
+              <button
+                onClick={exportToPDF}
+                disabled={isGeneratingPdf}
+                className="mac-button bg-blue-500 text-white hover:bg-blue-600 border-transparent shadow-blue-500/20 shadow-lg flex items-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
+              >
+                {isGeneratingPdf ? (
+                  <Loader2 className="animate-spin" size={16} />
+                ) : (
+                  <FileText size={16} />
+                )}
+                Xuất PDF
+              </button>
+              <button
+                onClick={exportToZIP}
+                disabled={isGeneratingZip}
+                className="mac-button bg-green-500 text-white hover:bg-green-600 border-transparent shadow-green-500/20 shadow-lg flex items-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
+              >
+                {isGeneratingZip ? (
+                  <Loader2 className="animate-spin" size={16} />
+                ) : (
+                  <Package size={16} />
+                )}
+                Xuất ZIP
+              </button>
+            </div>
+          </header>
 
-              <div className="space-y-5">
-                <div>
-                  <label className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-2">
-                    Tên Kho
-                  </label>
-                  <input
-                    type="text"
-                    name="warehouseName"
-                    value={config.warehouseName}
-                    onChange={handleInputChange}
-                    className="mac-input w-full"
-                    placeholder="Nhập tên kho..."
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-8 items-start">
+            {/* Settings Side Panel */}
+            <div className="lg:col-span-1 space-y-6">
+              <div className="glass rounded-2xl p-6 border border-white/40 shadow-xl shadow-gray-200/40">
+                <h2 className="text-base font-semibold text-gray-900 mb-5 flex items-center gap-2">
+                  <Settings2 size={18} className="text-gray-500" />
+                  Cấu hình
+                </h2>
+
+                <div className="space-y-5">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                      Tên Kho
+                    </label>
+                    <input
+                      type="text"
+                      name="warehouseName"
+                      value={config.warehouseName}
+                      onChange={handleInputChange}
+                      className="mac-input w-full"
+                      placeholder="Nhập tên kho..."
+                    />
+                  </div>
+
+                  {["rack", "level", "row"].map((field) => (
+                    <div
+                      key={field}
+                      className="p-4 bg-gray-50/50 rounded-xl border border-gray-100/60"
+                    >
+                      <div className="flex justify-between items-center mb-3">
+                        <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
+                          {field === "rack"
+                            ? "Kệ (Rack)"
+                            : field === "level"
+                              ? "Tầng (Level)"
+                              : "Hàng (Row)"}
+                        </label>
+                        <button
+                          onClick={() => toggleFormat(field)}
+                          className={`text-[10px] font-bold px-2 py-1 rounded-md transition-colors ${
+                            config[`${field}Format`] === "roman"
+                              ? "bg-purple-100 text-purple-700 hover:bg-purple-200"
+                              : "bg-blue-100 text-blue-700 hover:bg-blue-200"
+                          }`}
+                        >
+                          {config[`${field}Format`] === "arabic"
+                            ? "123"
+                            : "III"}
+                        </button>
+                      </div>
+                      <input
+                        type="number"
+                        name={`${field}s`}
+                        value={config[`${field}s`]}
+                        onChange={handleInputChange}
+                        className="mac-input w-full"
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Preview Card - matches PNG export layout */}
+              <div
+                ref={previewRef}
+                className="bg-white rounded-2xl p-4 shadow-xl shadow-gray-200/50 border border-gray-100 flex flex-col items-center text-center relative overflow-hidden"
+              >
+                {/* Logo */}
+                <img
+                  src="/CTD.png"
+                  alt="Logo"
+                  className="h-10 object-contain mb-2"
+                />
+
+                {/* Warehouse name */}
+                <div
+                  className="text-xs text-gray-500 font-light mb-1"
+                  style={{ fontFamily: "'Lexend Deca', sans-serif" }}
+                >
+                  {config.warehouseName}
+                </div>
+
+                {/* QR Code */}
+                <div className="bg-white p-2 rounded-lg mb-2">
+                  <img
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(
+                      `${config.warehouseName}-${formatValue(1, "rack")}-${formatValue(config.levels, "level")}-${formatValue(1, "row")}`,
+                    )}`}
+                    alt="QR Preview"
+                    className="w-32 h-32"
                   />
                 </div>
 
-                {["rack", "level", "row"].map((field) => (
-                  <div
-                    key={field}
-                    className="p-4 bg-gray-50/50 rounded-xl border border-gray-100/60"
-                  >
-                    <div className="flex justify-between items-center mb-3">
-                      <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
-                        {field === "rack"
-                          ? "Kệ (Rack)"
-                          : field === "level"
-                            ? "Tầng (Level)"
-                            : "Hàng (Row)"}
-                      </label>
-                      <button
-                        onClick={() => toggleFormat(field)}
-                        className={`text-[10px] font-bold px-2 py-1 rounded-md transition-colors ${
-                          config[`${field}Format`] === "roman"
-                            ? "bg-purple-100 text-purple-700 hover:bg-purple-200"
-                            : "bg-blue-100 text-blue-700 hover:bg-blue-200"
-                        }`}
-                      >
-                        {config[`${field}Format`] === "arabic" ? "123" : "III"}
-                      </button>
+                {/* Position code */}
+                <div
+                  className="text-sm font-medium text-gray-900 mb-1"
+                  style={{ fontFamily: "'Lexend Deca', sans-serif" }}
+                >
+                  {config.warehouseName}-{formatValue(1, "rack")}-
+                  {formatValue(config.levels, "level")}-{formatValue(1, "row")}
+                </div>
+
+                {/* Info line */}
+                <div
+                  className="text-xs text-gray-400 font-light"
+                  style={{ fontFamily: "'Lexend Deca', sans-serif" }}
+                >
+                  Kệ: {formatValue(1, "rack")} • Tầng:{" "}
+                  {formatValue(config.levels, "level")} • Hàng:{" "}
+                  {formatValue(1, "row")}
+                </div>
+              </div>
+            </div>
+
+            {/* Main Content Area */}
+            <div className="lg:col-span-3">
+              <div className="bg-white rounded-2xl border border-gray-200/60 shadow-sm overflow-hidden flex flex-col h-full min-h-[600px]">
+                <div className="p-5 border-b border-gray-100 flex items-center justify-between bg-gray-50/30 backdrop-blur-sm">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-blue-100/50 rounded-lg text-blue-600">
+                      <List size={20} />
                     </div>
-                    <input
-                      type="number"
-                      name={`${field}s`}
-                      value={config[`${field}s`]}
-                      onChange={handleInputChange}
-                      className="mac-input w-full"
-                    />
+                    <h2 className="text-base font-semibold text-gray-800">
+                      Danh sách mã định danh
+                    </h2>
                   </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Preview Card - matches PNG export layout */}
-            <div
-              ref={previewRef}
-              className="bg-white rounded-2xl p-4 shadow-xl shadow-gray-200/50 border border-gray-100 flex flex-col items-center text-center relative overflow-hidden"
-            >
-              {/* Logo */}
-              <img
-                src="/CTD.png"
-                alt="Logo"
-                className="h-10 object-contain mb-2"
-              />
-
-              {/* Warehouse name */}
-              <div
-                className="text-xs text-gray-500 font-light mb-1"
-                style={{ fontFamily: "'Lexend Deca', sans-serif" }}
-              >
-                {config.warehouseName}
-              </div>
-
-              {/* QR Code */}
-              <div className="bg-white p-2 rounded-lg mb-2">
-                <img
-                  src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(
-                    `${config.warehouseName}-${formatValue(1, "rack")}-${formatValue(config.levels, "level")}-${formatValue(1, "row")}`,
-                  )}`}
-                  alt="QR Preview"
-                  className="w-32 h-32"
-                />
-              </div>
-
-              {/* Position code */}
-              <div
-                className="text-sm font-medium text-gray-900 mb-1"
-                style={{ fontFamily: "'Lexend Deca', sans-serif" }}
-              >
-                {config.warehouseName}-{formatValue(1, "rack")}-
-                {formatValue(config.levels, "level")}-{formatValue(1, "row")}
-              </div>
-
-              {/* Info line */}
-              <div
-                className="text-xs text-gray-400 font-light"
-                style={{ fontFamily: "'Lexend Deca', sans-serif" }}
-              >
-                Kệ: {formatValue(1, "rack")} • Tầng:{" "}
-                {formatValue(config.levels, "level")} • Hàng:{" "}
-                {formatValue(1, "row")}
-              </div>
-            </div>
-          </div>
-
-          {/* Main Content Area */}
-          <div className="lg:col-span-3">
-            <div className="bg-white rounded-2xl border border-gray-200/60 shadow-sm overflow-hidden flex flex-col h-full min-h-[600px]">
-              <div className="p-5 border-b border-gray-100 flex items-center justify-between bg-gray-50/30 backdrop-blur-sm">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 bg-blue-100/50 rounded-lg text-blue-600">
-                    <List size={20} />
-                  </div>
-                  <h2 className="text-base font-semibold text-gray-800">
-                    Danh sách mã định danh
-                  </h2>
+                  <span className="text-xs font-medium px-2.5 py-1 bg-gray-100 text-gray-600 rounded-full">
+                    {positions.length} vị trí
+                  </span>
                 </div>
-                <span className="text-xs font-medium px-2.5 py-1 bg-gray-100 text-gray-600 rounded-full">
-                  {positions.length} vị trí
-                </span>
-              </div>
 
-              <div className="overflow-x-auto flex-1">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="border-b border-gray-100 text-left bg-gray-50/50">
-                      <th className="px-6 py-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
-                        Mã Vị Trí
-                      </th>
-                      <th className="px-6 py-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
-                        QR Code
-                      </th>
-                      <th className="px-6 py-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
-                        Kệ
-                      </th>
-                      <th className="px-6 py-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
-                        Tầng
-                      </th>
-                      <th className="px-6 py-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
-                        Hàng
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-50">
-                    {positions.slice(0, previewLimit).map((item, idx) => (
-                      <tr
-                        key={idx}
-                        className="group hover:bg-blue-50/30 transition-colors"
-                      >
-                        <td className="px-6 py-4">
-                          <span className="font-mono text-sm font-medium text-gray-700 bg-gray-100/50 px-2 py-1 rounded inline-block group-hover:bg-white group-hover:shadow-sm transition-all">
-                            {item.code}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4">
-                          <img
-                            src={item.qrUrl}
-                            alt="QR"
-                            className="w-8 h-8 rounded border border-gray-100 bg-white p-0.5"
-                          />
-                        </td>
-                        <td className="px-6 py-4">
-                          <span className="text-sm text-gray-600 font-medium">
-                            {item.rack}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4">
-                          <span className="text-xs font-semibold px-2 py-1 bg-blue-50 text-blue-600 rounded-md border border-blue-100/50">
-                            {item.level}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4">
-                          <span className="text-xs font-semibold px-2 py-1 bg-emerald-50 text-emerald-600 rounded-md border border-emerald-100/50">
-                            {item.row}
-                          </span>
-                        </td>
+                <div className="overflow-x-auto flex-1">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="border-b border-gray-100 text-left bg-gray-50/50">
+                        <th className="px-6 py-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
+                          Mã Vị Trí
+                        </th>
+                        <th className="px-6 py-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
+                          QR Code
+                        </th>
+                        <th className="px-6 py-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
+                          Kệ
+                        </th>
+                        <th className="px-6 py-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
+                          Tầng
+                        </th>
+                        <th className="px-6 py-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
+                          Hàng
+                        </th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              {positions.length > previewLimit && (
-                <div className="p-4 border-t border-gray-100 bg-gray-50/30 text-center">
-                  <button
-                    onClick={() => setPreviewLimit((prev) => prev + 20)}
-                    className="text-sm font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-50 px-4 py-2 rounded-lg transition-all"
-                  >
-                    Hiển thị thêm...
-                  </button>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {positions.slice(0, previewLimit).map((item, idx) => (
+                        <tr
+                          key={idx}
+                          className="group hover:bg-blue-50/30 transition-colors"
+                        >
+                          <td className="px-6 py-4">
+                            <span className="font-mono text-sm font-medium text-gray-700 bg-gray-100/50 px-2 py-1 rounded inline-block group-hover:bg-white group-hover:shadow-sm transition-all">
+                              {item.code}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4">
+                            <img
+                              src={item.qrUrl}
+                              alt="QR"
+                              className="w-8 h-8 rounded border border-gray-100 bg-white p-0.5"
+                            />
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className="text-sm text-gray-600 font-medium">
+                              {item.rack}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className="text-xs font-semibold px-2 py-1 bg-blue-50 text-blue-600 rounded-md border border-blue-100/50">
+                              {item.level}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className="text-xs font-semibold px-2 py-1 bg-emerald-50 text-emerald-600 rounded-md border border-emerald-100/50">
+                              {item.row}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
-              )}
+
+                {positions.length > previewLimit && (
+                  <div className="p-4 border-t border-gray-100 bg-gray-50/30 text-center">
+                    <button
+                      onClick={() => setPreviewLimit((prev) => prev + 20)}
+                      className="text-sm font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-50 px-4 py-2 rounded-lg transition-all"
+                    >
+                      Hiển thị thêm...
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
       </div>
-    </div>
+    </>
   );
 };
 
