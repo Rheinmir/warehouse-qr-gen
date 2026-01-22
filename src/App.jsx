@@ -405,10 +405,19 @@ const App = () => {
       // Add PDF
       zip.file(`Nhan_Kho_${config.warehouseName}.pdf`, await getPDFBlob());
 
-      // Add PNG
-      const pngBlob = await getPNGBlob();
-      if (pngBlob) {
-        zip.file(`preview_${config.warehouseName}.png`, pngBlob);
+      // Add ALL PNG images in subfolder
+      const pngFolder = zip.folder("qr_images");
+      const batchSize = 20;
+      for (let i = 0; i < positions.length; i += batchSize) {
+        const batch = positions.slice(i, i + batchSize);
+        const promises = batch.map(async (item) => {
+          const blob = await generateQRCard(item);
+          if (blob) {
+            const fileName = `${item.code.replace(/[/\\?%*:|"<>]/g, "_")}.png`;
+            pngFolder.file(fileName, blob);
+          }
+        });
+        await Promise.all(promises);
       }
 
       const content = await zip.generateAsync({ type: "blob" });
