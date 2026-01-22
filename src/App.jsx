@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from "react";
+import React, { useState, useMemo, useRef, useEffect } from "react";
 import {
   Package,
   Download,
@@ -10,6 +10,9 @@ import {
   Settings2,
   List,
   Image,
+  HelpCircle,
+  X,
+  ArrowRight,
 } from "lucide-react";
 import { jsPDF } from "jspdf";
 import html2canvas from "html2canvas";
@@ -66,6 +69,67 @@ const App = () => {
     total: 0,
     label: "",
   });
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [onboardingStep, setOnboardingStep] = useState(0);
+
+  // Onboarding steps config
+  const onboardingSteps = [
+    {
+      id: "warehouse",
+      label: "Tên kho hàng",
+      desc: "Nhập tên kho của bạn tại đây",
+      position: "right",
+    },
+    {
+      id: "config",
+      label: "Cấu hình số lượng",
+      desc: "Thiết lập số kệ, tầng, hàng",
+      position: "right",
+    },
+    {
+      id: "preview",
+      label: "Xem trước nhãn",
+      desc: "Mẫu nhãn QR sẽ hiển thị ở đây",
+      position: "right",
+    },
+    {
+      id: "export",
+      label: "Xuất dữ liệu",
+      desc: "Tải CSV, PNG hoặc ZIP tại đây",
+      position: "bottom",
+    },
+  ];
+
+  // Check cookie on mount for first-time user
+  useEffect(() => {
+    const hasSeenGuide = document.cookie.includes("qrgen_guide_seen=true");
+    if (!hasSeenGuide) {
+      setShowOnboarding(true);
+      setOnboardingStep(0);
+    }
+  }, []);
+
+  const nextOnboardingStep = () => {
+    if (onboardingStep < onboardingSteps.length - 1) {
+      setOnboardingStep(onboardingStep + 1);
+    } else {
+      closeOnboarding();
+    }
+  };
+
+  const closeOnboarding = () => {
+    setShowOnboarding(false);
+    setOnboardingStep(0);
+    // Save to cookie (expires in 1 year)
+    const expires = new Date();
+    expires.setFullYear(expires.getFullYear() + 1);
+    document.cookie = `qrgen_guide_seen=true; expires=${expires.toUTCString()}; path=/`;
+  };
+
+  const openOnboarding = () => {
+    setShowOnboarding(true);
+    setOnboardingStep(0);
+  };
 
   // Helper to format numbers based on config
   const formatValue = (val, type) => {
@@ -421,7 +485,7 @@ const App = () => {
     setIsGeneratingZip(true);
     setExportProgress({
       current: 0,
-      total: positions.length + 2,
+      total: positions.length + 1,
       label: "Đang tạo CSV...",
     });
     try {
@@ -431,22 +495,14 @@ const App = () => {
       zip.file(`danh_sach_vi_tri_${config.warehouseName}.csv`, getCSVBlob());
       setExportProgress({
         current: 1,
-        total: positions.length + 2,
-        label: "Đang tạo PDF...",
-      });
-
-      // Add PDF
-      zip.file(`Nhan_Kho_${config.warehouseName}.pdf`, await getPDFBlob());
-      setExportProgress({
-        current: 2,
-        total: positions.length + 2,
+        total: positions.length + 1,
         label: "Đang tạo ảnh PNG...",
       });
 
       // Add ALL PNG images in subfolder
       const pngFolder = zip.folder("qr_images");
       const batchSize = 20;
-      let processed = 2;
+      let processed = 1;
       for (let i = 0; i < positions.length; i += batchSize) {
         const batch = positions.slice(i, i + batchSize);
         const promises = batch.map(async (item) => {
@@ -515,6 +571,127 @@ const App = () => {
         </div>
       )}
 
+      {/* Onboarding Overlay - Step by Step */}
+      {showOnboarding && (
+        <div
+          className="fixed inset-0 bg-black/50 z-50 cursor-pointer"
+          onClick={nextOnboardingStep}
+        >
+          {/* Step 1: Warehouse name */}
+          {onboardingStep === 0 && (
+            <div className="absolute left-[320px] top-[200px]">
+              <div className="bg-white rounded-2xl shadow-2xl p-4 max-w-xs relative">
+                <div className="absolute -left-3 top-6 w-0 h-0 border-t-8 border-b-8 border-r-8 border-transparent border-r-white"></div>
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="w-6 h-6 rounded-full bg-blue-500 text-white flex items-center justify-center text-xs font-bold">
+                    1
+                  </div>
+                  <span className="font-semibold text-gray-800">
+                    {onboardingSteps[0].label}
+                  </span>
+                </div>
+                <p className="text-sm text-gray-500">
+                  {onboardingSteps[0].desc}
+                </p>
+                <p className="text-xs text-gray-400 mt-2 italic">
+                  Click để tiếp tục...
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Step 2: Config */}
+          {onboardingStep === 1 && (
+            <div className="absolute left-[320px] top-[350px]">
+              <div className="bg-white rounded-2xl shadow-2xl p-4 max-w-xs relative">
+                <div className="absolute -left-3 top-6 w-0 h-0 border-t-8 border-b-8 border-r-8 border-transparent border-r-white"></div>
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="w-6 h-6 rounded-full bg-purple-500 text-white flex items-center justify-center text-xs font-bold">
+                    2
+                  </div>
+                  <span className="font-semibold text-gray-800">
+                    {onboardingSteps[1].label}
+                  </span>
+                </div>
+                <p className="text-sm text-gray-500">
+                  {onboardingSteps[1].desc}
+                </p>
+                <p className="text-xs text-gray-400 mt-2 italic">
+                  Click để tiếp tục...
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Step 3: Preview */}
+          {onboardingStep === 2 && (
+            <div className="absolute left-[320px] top-[580px]">
+              <div className="bg-white rounded-2xl shadow-2xl p-4 max-w-xs relative">
+                <div className="absolute -left-3 top-6 w-0 h-0 border-t-8 border-b-8 border-r-8 border-transparent border-r-white"></div>
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="w-6 h-6 rounded-full bg-green-500 text-white flex items-center justify-center text-xs font-bold">
+                    3
+                  </div>
+                  <span className="font-semibold text-gray-800">
+                    {onboardingSteps[2].label}
+                  </span>
+                </div>
+                <p className="text-sm text-gray-500">
+                  {onboardingSteps[2].desc}
+                </p>
+                <p className="text-xs text-gray-400 mt-2 italic">
+                  Click để tiếp tục...
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Step 4: Export buttons */}
+          {onboardingStep === 3 && (
+            <div className="absolute right-[100px] top-[130px]">
+              <div className="bg-white rounded-2xl shadow-2xl p-4 max-w-xs relative">
+                <div className="absolute -top-3 right-12 w-0 h-0 border-l-8 border-r-8 border-b-8 border-transparent border-b-white"></div>
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="w-6 h-6 rounded-full bg-orange-500 text-white flex items-center justify-center text-xs font-bold">
+                    4
+                  </div>
+                  <span className="font-semibold text-gray-800">
+                    {onboardingSteps[3].label}
+                  </span>
+                </div>
+                <p className="text-sm text-gray-500">
+                  {onboardingSteps[3].desc}
+                </p>
+                <p className="text-xs text-blue-500 mt-2 font-medium">
+                  Click để hoàn thành! ✓
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Skip button */}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              closeOnboarding();
+            }}
+            className="absolute top-6 right-6 text-white/70 hover:text-white text-sm flex items-center gap-2 bg-white/10 backdrop-blur-sm px-3 py-1.5 rounded-full"
+          >
+            Bỏ qua <X size={14} />
+          </button>
+
+          {/* Step indicator */}
+          <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex gap-2">
+            {onboardingSteps.map((_, idx) => (
+              <div
+                key={idx}
+                className={`w-2.5 h-2.5 rounded-full transition-colors ${idx === onboardingStep ? "bg-white scale-125" : "bg-white/40"}`}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="min-h-screen p-6 md:p-10 flex justify-center">
         <div className="max-w-7xl w-full space-y-8">
           {/* Header */}
@@ -526,6 +703,14 @@ const App = () => {
               </h1>
             </div>
             <div className="flex gap-3">
+              {/* Help Button */}
+              <button
+                onClick={openOnboarding}
+                className="mac-button bg-white border border-gray-200 text-gray-500 hover:text-blue-500 hover:border-blue-200 flex items-center justify-center w-10 h-10 !p-0"
+                title="Xem hướng dẫn"
+              >
+                <HelpCircle size={18} />
+              </button>
               <button
                 onClick={exportToCSV}
                 className="mac-button bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-gray-300 flex items-center gap-2"
