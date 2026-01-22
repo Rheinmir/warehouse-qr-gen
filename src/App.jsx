@@ -549,38 +549,54 @@ const App = () => {
               </div>
             </div>
 
-            {/* Preview Card */}
+            {/* Preview Card - matches PNG export layout */}
             <div
               ref={previewRef}
-              className="bg-white rounded-2xl p-6 shadow-xl shadow-gray-200/50 border border-gray-100 flex flex-col items-center text-center relative overflow-hidden group"
+              className="bg-white rounded-2xl p-4 shadow-xl shadow-gray-200/50 border border-gray-100 flex flex-col items-center text-center relative overflow-hidden"
             >
-              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-400 to-purple-400"></div>
-              <h2 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-4">
-                Xem trước
-              </h2>
-              <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 mb-3 group-hover:scale-105 transition-transform duration-300">
+              {/* Logo */}
+              <img
+                src="/CTD.png"
+                alt="Logo"
+                className="h-10 object-contain mb-2"
+              />
+
+              {/* Warehouse name */}
+              <div
+                className="text-xs text-gray-500 font-light mb-1"
+                style={{ fontFamily: "'Lexend Deca', sans-serif" }}
+              >
+                {config.warehouseName}
+              </div>
+
+              {/* QR Code */}
+              <div className="bg-white p-2 rounded-lg mb-2">
                 <img
-                  src={`https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(
-                    `${config.warehouseName}-${formatValue(
-                      1,
-                      "rack",
-                    )}-${formatValue(config.levels, "level")}-${formatValue(
-                      1,
-                      "row",
-                    )}`,
+                  src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(
+                    `${config.warehouseName}-${formatValue(1, "rack")}-${formatValue(config.levels, "level")}-${formatValue(1, "row")}`,
                   )}`}
                   alt="QR Preview"
-                  className="w-28 h-28 opacity-90"
+                  className="w-32 h-32"
                 />
               </div>
-              <div>
-                <div className="text-xs font-medium text-gray-500 truncate w-48 mx-auto">
-                  {config.warehouseName}
-                </div>
-                <div className="text-base font-bold text-gray-900 mt-1 font-mono tracking-tight">
-                  {formatValue(1, "rack")}-{formatValue(config.levels, "level")}
-                  -{formatValue(1, "row")}
-                </div>
+
+              {/* Position code */}
+              <div
+                className="text-sm font-medium text-gray-900 mb-1"
+                style={{ fontFamily: "'Lexend Deca', sans-serif" }}
+              >
+                {config.warehouseName}-{formatValue(1, "rack")}-
+                {formatValue(config.levels, "level")}-{formatValue(1, "row")}
+              </div>
+
+              {/* Info line */}
+              <div
+                className="text-xs text-gray-400 font-light"
+                style={{ fontFamily: "'Lexend Deca', sans-serif" }}
+              >
+                Kệ: {formatValue(1, "rack")} • Tầng:{" "}
+                {formatValue(config.levels, "level")} • Hàng:{" "}
+                {formatValue(1, "row")}
               </div>
             </div>
           </div>
