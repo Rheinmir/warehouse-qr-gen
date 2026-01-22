@@ -145,13 +145,30 @@ const App = () => {
     document.body.removeChild(link);
   };
 
-  const getPDFBlob = () => {
+  const getPDFBlob = async () => {
     const doc = new jsPDF({ orientation: "p", unit: "mm", format: "a4" });
     const itemsPerPage = 12;
     const margin = 10;
     const cardWidth = 60;
     const cardHeight = 60;
     const gap = 5;
+    const qrSize = 25; // QR code size in mm
+
+    // Helper function to load image as base64
+    const loadImageAsBase64 = async (url) => {
+      try {
+        const response = await fetch(url);
+        const blob = await response.blob();
+        return new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result);
+          reader.readAsDataURL(blob);
+        });
+      } catch (error) {
+        console.error("Failed to load QR image:", error);
+        return null;
+      }
+    };
 
     for (let i = 0; i < positions.length; i++) {
       const item = positions[i];
@@ -169,39 +186,38 @@ const App = () => {
       // Warehouse Name (Top)
       doc.setFontSize(7);
       doc.setTextColor(100, 100, 100);
-      const warehouseLines = doc.splitTextToSize(item.warehouse, 50);
-      doc.text(warehouseLines, x + cardWidth / 2, y + 5, {
+      doc.text(item.warehouse, x + cardWidth / 2, y + 4, {
         align: "center",
         baseline: "top",
       });
 
-      // Calculate height used by warehouse name
-      const warehouseHeight = warehouseLines.length * 3; // Approx 3mm per line for size 7
+      // QR Code (Center)
+      const qrBase64 = await loadImageAsBase64(item.qrUrl);
+      if (qrBase64) {
+        const qrX = x + (cardWidth - qrSize) / 2;
+        const qrY = y + 8;
+        doc.addImage(qrBase64, "PNG", qrX, qrY, qrSize, qrSize);
+      }
 
-      // Code (Middle) - Dynamic Y
-      doc.setFontSize(10);
+      // Code (Below QR)
+      doc.setFontSize(9);
       doc.setTextColor(0, 0, 0);
       doc.setFont(undefined, "bold");
       const codeLines = doc.splitTextToSize(item.code, 55);
-      // Position code below warehouse name with some padding
-      const codeY = y + 5 + warehouseHeight + 5;
+      const codeY = y + 8 + qrSize + 2;
       doc.text(codeLines, x + cardWidth / 2, codeY, {
         align: "center",
         baseline: "top",
       });
 
-      // Calculate height used by code
-      const codeHeight = codeLines.length * 4; // Approx 4mm per line for size 10
-
-      // Info (Bottom) - Dynamic Y
-      doc.setFontSize(8);
+      // Info (Bottom)
+      doc.setFontSize(7);
       doc.setFont(undefined, "normal");
-      const infoY = codeY + codeHeight + 5;
       doc.text(
         `Kệ: ${item.rack} | Tầng: ${item.level} | Hàng: ${item.row}`,
         x + cardWidth / 2,
-        infoY,
-        { align: "center", baseline: "top" },
+        y + cardHeight - 3,
+        { align: "center", baseline: "bottom" },
       );
     }
     return doc.output("blob");
@@ -257,7 +273,7 @@ const App = () => {
       zip.file(`danh_sach_vi_tri_${config.warehouseName}.csv`, getCSVBlob());
 
       // Add PDF
-      zip.file(`Nhan_Kho_${config.warehouseName}.pdf`, getPDFBlob());
+      zip.file(`Nhan_Kho_${config.warehouseName}.pdf`, await getPDFBlob());
 
       // Add PNG
       const pngBlob = await getPNGBlob();
