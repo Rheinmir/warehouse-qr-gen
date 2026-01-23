@@ -49,6 +49,10 @@ const toRoman = (num) => {
 const App = () => {
   // Ref for PNG export
   const previewRef = useRef(null);
+  const warehouseInputRef = useRef(null);
+  const configPanelRef = useRef(null);
+  const exportButtonsRef = useRef(null);
+
   // State for configuration
   const [config, setConfig] = useState({
     warehouseName: "Kho 2(miền Nam, new)",
@@ -71,6 +75,11 @@ const App = () => {
   });
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [onboardingStep, setOnboardingStep] = useState(0);
+  const [overlayPosition, setOverlayPosition] = useState({
+    top: 0,
+    left: 0,
+    placement: "right",
+  });
 
   // Onboarding steps config
   const onboardingSteps = [
@@ -78,27 +87,73 @@ const App = () => {
       id: "warehouse",
       label: "Tên kho hàng",
       desc: "Nhập tên kho của bạn tại đây",
-      position: "right",
+      ref: warehouseInputRef,
+      placement: "bottom",
     },
     {
       id: "config",
       label: "Cấu hình số lượng",
       desc: "Thiết lập số kệ, tầng, hàng",
-      position: "right",
+      ref: configPanelRef,
+      placement: "right",
     },
     {
       id: "preview",
       label: "Xem trước nhãn",
       desc: "Mẫu nhãn QR sẽ hiển thị ở đây",
-      position: "right",
+      ref: previewRef,
+      placement: "right",
     },
     {
       id: "export",
       label: "Xuất dữ liệu",
       desc: "Tải CSV, PNG hoặc ZIP tại đây",
-      position: "bottom",
+      ref: exportButtonsRef,
+      placement: "bottom",
     },
   ];
+
+  // Update overlay position based on current step
+  const updateOverlayPosition = () => {
+    if (!showOnboarding) return;
+
+    const currentStepConfig = onboardingSteps[onboardingStep];
+    const targetRef = currentStepConfig?.ref;
+
+    if (targetRef && targetRef.current) {
+      const rect = targetRef.current.getBoundingClientRect();
+      const placement = currentStepConfig.placement || "right";
+      let top = 0;
+      let left = 0;
+
+      // Calculate position based on placement
+      if (placement === "right") {
+        top = rect.top + rect.height / 2;
+        left = rect.right + 20;
+      } else if (placement === "left") {
+        top = rect.top + rect.height / 2;
+        left = rect.left - 20;
+      } else if (placement === "bottom") {
+        top = rect.bottom + 20;
+        left = rect.left + rect.width / 2;
+      } else if (placement === "top") {
+        top = rect.top - 20;
+        left = rect.left + rect.width / 2;
+      }
+
+      setOverlayPosition({ top, left, placement });
+    }
+  };
+
+  useEffect(() => {
+    updateOverlayPosition();
+    window.addEventListener("resize", updateOverlayPosition);
+    window.addEventListener("scroll", updateOverlayPosition);
+    return () => {
+      window.removeEventListener("resize", updateOverlayPosition);
+      window.removeEventListener("scroll", updateOverlayPosition);
+    };
+  }, [onboardingStep, showOnboarding]);
 
   // Check cookie on mount for first-time user
   useEffect(() => {
@@ -572,122 +627,77 @@ const App = () => {
       )}
 
       {/* Onboarding Overlay - Step by Step */}
+      {/* Onboarding Overlay - Dynamic Bubble */}
       {showOnboarding && (
         <div
           className="fixed inset-0 bg-black/50 z-50 cursor-pointer"
           onClick={nextOnboardingStep}
         >
-          {/* Step 1: Warehouse name */}
-          {onboardingStep === 0 && (
-            <div className="absolute left-[320px] top-[200px]">
-              <div className="bg-white rounded-2xl shadow-2xl p-4 max-w-xs relative">
-                <div className="absolute -left-3 top-6 w-0 h-0 border-t-8 border-b-8 border-r-8 border-transparent border-r-white"></div>
-                <div className="flex items-center gap-2 mb-2">
-                  <div className="w-6 h-6 rounded-full bg-blue-500 text-white flex items-center justify-center text-xs font-bold">
-                    1
-                  </div>
-                  <span className="font-semibold text-gray-800">
-                    {onboardingSteps[0].label}
-                  </span>
-                </div>
-                <p className="text-sm text-gray-500">
-                  {onboardingSteps[0].desc}
-                </p>
-                <p className="text-xs text-gray-400 mt-2 italic">
-                  Click để tiếp tục...
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* Step 2: Config */}
-          {onboardingStep === 1 && (
-            <div className="absolute left-[320px] top-[350px]">
-              <div className="bg-white rounded-2xl shadow-2xl p-4 max-w-xs relative">
-                <div className="absolute -left-3 top-6 w-0 h-0 border-t-8 border-b-8 border-r-8 border-transparent border-r-white"></div>
-                <div className="flex items-center gap-2 mb-2">
-                  <div className="w-6 h-6 rounded-full bg-purple-500 text-white flex items-center justify-center text-xs font-bold">
-                    2
-                  </div>
-                  <span className="font-semibold text-gray-800">
-                    {onboardingSteps[1].label}
-                  </span>
-                </div>
-                <p className="text-sm text-gray-500">
-                  {onboardingSteps[1].desc}
-                </p>
-                <p className="text-xs text-gray-400 mt-2 italic">
-                  Click để tiếp tục...
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* Step 3: Preview */}
-          {onboardingStep === 2 && (
-            <div className="absolute left-[320px] top-[580px]">
-              <div className="bg-white rounded-2xl shadow-2xl p-4 max-w-xs relative">
-                <div className="absolute -left-3 top-6 w-0 h-0 border-t-8 border-b-8 border-r-8 border-transparent border-r-white"></div>
-                <div className="flex items-center gap-2 mb-2">
-                  <div className="w-6 h-6 rounded-full bg-green-500 text-white flex items-center justify-center text-xs font-bold">
-                    3
-                  </div>
-                  <span className="font-semibold text-gray-800">
-                    {onboardingSteps[2].label}
-                  </span>
-                </div>
-                <p className="text-sm text-gray-500">
-                  {onboardingSteps[2].desc}
-                </p>
-                <p className="text-xs text-gray-400 mt-2 italic">
-                  Click để tiếp tục...
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* Step 4: Export buttons */}
-          {onboardingStep === 3 && (
-            <div className="absolute right-[100px] top-[130px]">
-              <div className="bg-white rounded-2xl shadow-2xl p-4 max-w-xs relative">
-                <div className="absolute -top-3 right-12 w-0 h-0 border-l-8 border-r-8 border-b-8 border-transparent border-b-white"></div>
-                <div className="flex items-center gap-2 mb-2">
-                  <div className="w-6 h-6 rounded-full bg-orange-500 text-white flex items-center justify-center text-xs font-bold">
-                    4
-                  </div>
-                  <span className="font-semibold text-gray-800">
-                    {onboardingSteps[3].label}
-                  </span>
-                </div>
-                <p className="text-sm text-gray-500">
-                  {onboardingSteps[3].desc}
-                </p>
-                <p className="text-xs text-blue-500 mt-2 font-medium">
-                  Click để hoàn thành! ✓
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* Skip button */}
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              closeOnboarding();
+          <div
+            className="absolute bg-white rounded-2xl shadow-2xl p-4 max-w-xs transition-all duration-300 ease-out pointer-events-auto"
+            style={{
+              top: overlayPosition.top,
+              left: overlayPosition.left,
+              transform:
+                overlayPosition.placement === "right"
+                  ? "translate(0, -50%)"
+                  : overlayPosition.placement === "left"
+                    ? "translate(-100%, -50%)"
+                    : overlayPosition.placement === "bottom"
+                      ? "translate(-50%, 0)"
+                      : "translate(-50%, -100%)",
             }}
-            className="absolute top-6 right-6 text-white/70 hover:text-white text-sm flex items-center gap-2 bg-white/10 backdrop-blur-sm px-3 py-1.5 rounded-full"
           >
-            Bỏ qua <X size={14} />
-          </button>
+            {/* Arrow/Triangle */}
+            <div
+              className={`absolute w-0 h-0 border-8 border-transparent ${
+                overlayPosition.placement === "right"
+                  ? "border-r-white -left-4 top-1/2 -translate-y-1/2"
+                  : overlayPosition.placement === "left"
+                    ? "border-l-white -right-4 top-1/2 -translate-y-1/2"
+                    : overlayPosition.placement === "bottom"
+                      ? "border-b-white -top-4 left-1/2 -translate-x-1/2"
+                      : "border-t-white -bottom-4 left-1/2 -translate-x-1/2"
+              }`}
+            />
 
-          {/* Step indicator */}
-          <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex gap-2">
-            {onboardingSteps.map((_, idx) => (
+            <div className="flex items-center gap-2 mb-2">
               <div
-                key={idx}
-                className={`w-2.5 h-2.5 rounded-full transition-colors ${idx === onboardingStep ? "bg-white scale-125" : "bg-white/40"}`}
-              />
-            ))}
+                className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white ${
+                  onboardingStep === 0
+                    ? "bg-blue-500"
+                    : onboardingStep === 1
+                      ? "bg-purple-500"
+                      : onboardingStep === 2
+                        ? "bg-green-500"
+                        : "bg-orange-500"
+                }`}
+              >
+                {onboardingStep + 1}
+              </div>
+              <span className="font-semibold text-gray-800">
+                {onboardingSteps[onboardingStep].label}
+              </span>
+            </div>
+            <p className="text-sm text-gray-500">
+              {onboardingSteps[onboardingStep].desc}
+            </p>
+            <p className="text-xs text-blue-500 mt-2 font-medium">
+              {onboardingStep === onboardingSteps.length - 1
+                ? "Click để hoàn thành! ✓"
+                : "Click để tiếp tục..."}
+            </p>
+
+            {/* Skip button */}
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                closeOnboarding();
+              }}
+              className="absolute -top-10 right-0 text-white/70 hover:text-white text-sm flex items-center gap-2 bg-white/10 backdrop-blur-sm px-3 py-1.5 rounded-full"
+            >
+              Bỏ qua <X size={14} />
+            </button>
           </div>
         </div>
       )}
@@ -702,7 +712,7 @@ const App = () => {
                 Quản lý Nhãn Vị Trí Kho
               </h1>
             </div>
-            <div className="flex gap-3">
+            <div className="flex gap-3" ref={exportButtonsRef}>
               {/* Help Button */}
               <button
                 onClick={openOnboarding}
@@ -759,7 +769,10 @@ const App = () => {
           <div className="grid grid-cols-1 lg:grid-cols-4 gap-8 items-start">
             {/* Settings Side Panel */}
             <div className="lg:col-span-1 space-y-6">
-              <div className="glass rounded-2xl p-6 border border-white/40 shadow-xl shadow-gray-200/40">
+              <div
+                className="glass rounded-2xl p-6 border border-white/40 shadow-xl shadow-gray-200/40"
+                ref={configPanelRef}
+              >
                 <h2 className="text-base font-semibold text-gray-900 mb-5 flex items-center gap-2">
                   <Settings2 size={18} className="text-gray-500" />
                   Cấu hình
@@ -772,6 +785,7 @@ const App = () => {
                     </label>
                     <input
                       type="text"
+                      ref={warehouseInputRef}
                       name="warehouseName"
                       value={config.warehouseName}
                       onChange={handleInputChange}
